@@ -1,13 +1,18 @@
 from typing import Dict, Any
 from ..agents.finance import FinanceAgent
-from ..agents.education import EducationAgent  
+from ..agents.education import EducationAgent
 from ..agents.creator import CreatorAgent
+from ..agents.video import VideoAgent
 from ..modules.base import BaseModule
 from .module_loader import load_modules
+from .feedback_models import CanonicalFeedbackSchema
 from ..db.memory import ContextMemory
 from ..db.memory_adapter import SQLiteAdapter, RemoteNoopurAdapter, MONGODB_AVAILABLE
 from ..utils.logger import setup_logger
+from ..utils.bridge_client import BridgeClient
+from ..utils.video_bridge_client import VideoBridgeClient
 from config.config import DB_PATH, INTEGRATOR_USE_NOOPUR, USE_MONGODB, MONGODB_CONNECTION_STRING, MONGODB_DATABASE_NAME
+from pydantic import ValidationError
 
 if MONGODB_AVAILABLE:
     from ..db.mongodb_adapter import MongoDBAdapter
@@ -19,11 +24,21 @@ class Gateway:
     """Central gateway for routing requests to appropriate agents"""
     
     def __init__(self):
+        # Initialize logger first
+        self.logger = setup_logger(__name__)
+        
+        # Initialize BridgeClient as canonical external service interface
+        self.bridge_client = BridgeClient()
+        
+        # Initialize VideoBridgeClient for text-to-video service
+        self.video_bridge_client = VideoBridgeClient()
+        
         # Built-in agents (non-module agents)
         self.agents = {
             "finance": FinanceAgent(),
             "education": EducationAgent(),
             "creator": CreatorAgent(),
+            "video": VideoAgent(),
         }
 
         # Dynamically load modules from modules/ directory
@@ -33,10 +48,7 @@ class Gateway:
             self.agents[name] = inst
         if errors:
             for e in errors:
-                self.logger = setup_logger(__name__)
                 self.logger.warning(f"Module loader issue: {e}")
-        # Initialize logger first
-        self.logger = setup_logger(__name__)
         
         # Memory adapter: MongoDB > Noopur > SQLite (priority order with fallback)
         if USE_MONGODB and MONGODB_AVAILABLE:
@@ -71,9 +83,45 @@ class Gateway:
             pass
         return {}
     
+    def check_external_service_health(self) -> Dict[str, Any]:
+        """Check external service health using BridgeClient"""
+        try:
+            health_result = self.bridge_client.health_check()
+            if health_result.get('success') is not False:
+                return {"status": "healthy", "details": health_result}
+            else:
+                return {
+                    "status": "unhealthy", 
+                    "error_type": health_result.get('error_type'),
+                    "details": health_result
+                }
+        except Exception as e:
+            return {"status": "unreachable", "error": str(e)}
+    
+    def validate_feedback(self, data: Dict[str, Any]) -> CanonicalFeedbackSchema:
+        """Validate feedback data against canonical schema"""
+        try:
+            return CanonicalFeedbackSchema(**data)
+        except ValidationError as e:
+            self.logger.error(f"Feedback validation failed: {e}")
+            raise ValueError(f"Invalid feedback schema: {e}")
+    
     def process_request(self, module: str, intent: str, user_id: str, 
                        data: Dict[str, Any]) -> Dict[str, Any]:
         """Process incoming request and route to appropriate agent"""
+        
+        # Special validation for feedback requests
+        if module == "creator" and intent == "feedback":
+            try:
+                validated_feedback = self.validate_feedback(data)
+                data = validated_feedback.dict()
+                self.logger.info(f"Feedback validated successfully for user: {user_id}")
+            except ValueError as e:
+                return {
+                    "status": "error",
+                    "message": str(e),
+                    "result": {}
+                }
         
         # Get user context (adapter provides get_context)
         context = self.memory.get_context(user_id) if user_id else []

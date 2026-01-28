@@ -4,8 +4,8 @@ from typing import Dict, Any, Literal
 
 class CoreRequest(BaseModel):
     """Request model for the core gateway endpoint"""
-    module: Literal["finance", "education", "creator", "sample_text"] = Field(..., description="Target module name")
-    intent: Literal["generate", "analyze", "review"] = Field(..., description="Intent for the module to perform")
+    module: Literal["finance", "education", "creator", "sample_text", "video"] = Field(..., description="Target module name")
+    intent: Literal["generate", "analyze", "review", "get_status", "list_videos", "feedback", "history"] = Field(..., description="Intent for the module to perform")
     user_id: str = Field(..., min_length=1)
     data: Dict[str, Any] = Field(default_factory=dict)
 

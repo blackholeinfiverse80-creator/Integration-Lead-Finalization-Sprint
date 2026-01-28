@@ -1,5 +1,5 @@
 from typing import Dict, Any, List
-from modules.base import BaseModule
+from src.modules.base import BaseModule
 
 
 class SampleTextModule(BaseModule):
