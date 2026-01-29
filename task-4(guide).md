@@ -180,7 +180,7 @@ Goal: Make system presentable and diagnosable during Dec 5 demo.
 - Add /system/logs/latest
 - Add structured logging in JSONL format
 - Prepare Postman Collection
-- Prepare demonstration flow script
+- Prepare demonstration flow 
 
 
 ## Deliverables
